@@ -1,11 +1,18 @@
 ### FastBert,  复现ACL2020论文 [FastBERT: a Self-distilling BERT with Adaptive Inference Time](https://arxiv.org/pdf/2004.02178.pdf)
 
 ### 简介
-    1. 相比一众BERT蒸馏方法，FastBERT准确率损失较小, 加速比约1~10倍
-    2. 适用于文本分类任务，想要用BERT提升效果但受限于机器资源的场景
-    3. 和BERT预训练模型兼容，可灵活替换各种预训练模型，如ernie
+    相比一众BERT蒸馏方法，FastBERT的蒸馏过程和具体任务一起进行, 且主干BERT网络不变，有如下优点:
+        1. 准确率损失较小, 加速比约1~10倍,
+        2. 和BERT预训练模型兼容，可灵活替换各种预训练模型，如ernie
+        3. 使用简单, 较为实用
+    适用于文本分类任务，想要用BERT提升效果但受限于机器资源的场景
 
 ### 使用方法
+   下载pretrain的bert模型:
+   <br>
+   [bert中文](https://share.weiyun.com/5goxygS)，放至目录./pretrained_model/bert-chinese/bert-pytorch-google/下
+   <br>
+   [百度ernie](https://share.weiyun.com/5rYpEBs)，放至目录./pretrained_model/ernie/ERNIE_stable-1.0.1-pytorch/下
 ```bash
     1. 初始训练:
     sh run_scripts/script_train_stage0.sh
