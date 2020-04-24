@@ -1,0 +1,9 @@
+python3 infer.py \
+    --model_config_file='config/fastbert_cls.json' \
+    --save_model_path='saved_model/fastbert_test' \
+    --inference_speed=0.5 \
+    --infer_data='./sample/ChnSentiCorp/dev.tsv' \
+    --dump_info_file='infer_info.txt' \
+    --data_load_num_workers=2 \
+    --gpu_ids=1 \
+    --debug_break=0
