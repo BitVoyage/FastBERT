@@ -1,4 +1,4 @@
-#Auth:zhanglusheng@outlook.com
+#Auth:lshzhang@tencent.com
 #Implementation of FastBERT, paper refer:https://arxiv.org/pdf/2004.02178.pdf
 
 import argparse
@@ -77,14 +77,13 @@ def infer_model(master_gpu_id, model, dataset,
     if dump_info_file != None and len(dump_info_file) != 0:
         with open(dump_info_file, 'w') as fw:
             for label, pred, prob, layer_i, text in infos:
-                #fw.write('\t'.join([str(label), str(pred), str(prob), str(layer_i), text])+'\n')
                 fw.write('\t'.join([str(label), str(pred), str(layer_i), text])+'\n')
 
-    labels_pr = [info[0] for info in infos]
-    preds_pr = [info[1] for info in infos]
-    precise, recall = eval_pr(labels_pr, preds_pr)
-    logging.info("precise:%s, recall:%s", format(precise, '0.4f'), format(recall, '0.4f'))
-
+    if probs.shape[1] == 2:
+        labels_pr = [info[0] for info in infos]
+        preds_pr = [info[1] for info in infos]
+        precise, recall = eval_pr(labels_pr, preds_pr)
+        logging.info("precise:%s, recall:%s", format(precise, '0.4f'), format(recall, '0.4f'))
 
 
 def main(args):
