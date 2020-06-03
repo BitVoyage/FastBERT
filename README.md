@@ -10,9 +10,11 @@
 ### 使用方法
    下载pretrain的bert模型:
    <br>
-   [bert中文](https://share.weiyun.com/5goxygS)，放至目录./pretrained_model/bert-chinese/bert-pytorch-google/下
+   [bert中文(微云)](https://share.weiyun.com/5goxygS)，[bert中文(百度网盘),提取码:mxfb](https://pan.baidu.com/s/15YpZB7uxuiCjEFZh1zx38w)
+   放至目录./pretrained_model/bert-chinese/bert-pytorch-google/下
    <br>
-   [百度ernie](https://share.weiyun.com/5rYpEBs)，放至目录./pretrained_model/ernie/ERNIE_stable-1.0.1-pytorch/下
+   [百度ernie(微云)](https://share.weiyun.com/5rYpEBs)，[百度ernie(百度网盘),提取码:vui3](https://pan.baidu.com/s/1nD_hIYfis6Qn2JTXvX7dGg)
+   放至目录./pretrained_model/ernie/ERNIE_stable-1.0.1-pytorch/下
 ```bash
     1. 初始训练:
     sh run_scripts/script_train_stage0.sh
