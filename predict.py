@@ -57,7 +57,7 @@ class ModelPredictor:
 
     def preproc_text(self,  text):
         tokens = self.tokenizer.tokenize(text)
-        tokens = tokens[:(self.max_seq_len - 2)]
+        tokens = tokens[:(self.max_seq_len - 1)]
         tokens = ["[CLS]"] + tokens 
         tokens = self.tokenizer.convert_tokens_to_ids(tokens)
         segment_ids = [0] * (len(tokens))
