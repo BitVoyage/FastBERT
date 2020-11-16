@@ -1,5 +1,5 @@
 ### FastBert,  复现ACL2020论文 [FastBERT: a Self-distilling BERT with Adaptive Inference Time](https://arxiv.org/pdf/2004.02178.pdf)
-
+注:已收到多个反馈，分类数目很多时，FastBert加速效果不明显，请根据实际情况应用
 ### 简介
     相比一众BERT蒸馏方法，FastBERT的蒸馏过程和具体任务一起进行, 且主干BERT网络不变，有如下优点:
         1. 准确率损失较小, 加速比约1~10倍,
