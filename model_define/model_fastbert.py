@@ -350,7 +350,10 @@ class FastBERTGraph(nn.Module):
         self.layer_classifiers = nn.ModuleDict()
         for i in range(bert_config.num_hidden_layers - 1):
             self.layer_classifiers['branch_classifier_'+str(i)] = copy.deepcopy(self.layer_classifier)
-        self.layer_classifiers['final_classifier'] = copy.deepcopy(self.layer_classifier)
+
+        #Bugfix, Reuse layer_classifier, Train and Distill Tearch Classifer Keep Unique
+        #self.layer_classifiers['final_classifier'] = copy.deepcopy(self.layer_classifier)
+        self.layer_classifiers['final_classifier'] = self.layer_classifier
 
         self.ce_loss_fct = nn.CrossEntropyLoss()
         self.num_class = torch.tensor(op_config["num_class"], dtype=torch.float32)
