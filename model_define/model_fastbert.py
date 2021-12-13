@@ -31,6 +31,7 @@ import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 
+
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
@@ -45,18 +46,19 @@ ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu}
 class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
+
     def __init__(self,
-                vocab_size,
-                hidden_size=768,
-                num_hidden_layers=12,
-                num_attention_heads=12,
-                intermediate_size=3072,
-                hidden_act="gelu",
-                hidden_dropout_prob=0.1,
-                attention_probs_dropout_prob=0.1,
-                max_position_embeddings=512,
-                type_vocab_size=16,
-                initializer_range=0.02):
+                 vocab_size,
+                 hidden_size=768,
+                 num_hidden_layers=12,
+                 num_attention_heads=12,
+                 intermediate_size=3072,
+                 hidden_act="gelu",
+                 hidden_dropout_prob=0.1,
+                 attention_probs_dropout_prob=0.1,
+                 max_position_embeddings=512,
+                 type_vocab_size=16,
+                 initializer_range=0.02):
         """Constructs BertConfig.
 
         Args:
@@ -133,6 +135,7 @@ class BERTLayerNorm(nn.Module):
         x = (x - u) / torch.sqrt(s + self.variance_epsilon)
         return self.gamma * x + self.beta
 
+
 class BERTEmbeddings(nn.Module):
     def __init__(self, config):
         super(BERTEmbeddings, self).__init__()
@@ -205,7 +208,7 @@ class BERTSelfAttention(nn.Module):
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
-        if use_attention_mask: 
+        if use_attention_mask:
             attention_scores = attention_scores + attention_mask
 
         # Normalize the attention scores to probabilities.
@@ -244,7 +247,7 @@ class BERTAttention(nn.Module):
 
     def forward(self, input_tensor, attention_mask):
         self_output = self.self(input_tensor, attention_mask)
-        #print(self_output.shape)
+        # print(self_output.shape)
         attention_output = self.output(self_output, input_tensor)
         return attention_output
 
@@ -299,14 +302,15 @@ class FastBERTClassifier(nn.Module):
         num_class = op_config["num_class"]
 
         self.dense_narrow = nn.Linear(config.hidden_size, cls_hidden_size)
-        self.selfAttention = BERTSelfAttention(config, hidden_size=cls_hidden_size, num_attention_heads=num_attention_heads)
+        self.selfAttention = BERTSelfAttention(config, hidden_size=cls_hidden_size,
+                                               num_attention_heads=num_attention_heads)
         self.dense_prelogits = nn.Linear(cls_hidden_size, cls_hidden_size)
         self.dense_logits = nn.Linear(cls_hidden_size, num_class)
 
     def forward(self, hidden_states):
         states_output = self.dense_narrow(hidden_states)
         states_output = self.selfAttention(states_output, None, use_attention_mask=False)
-        token_cls_output =  states_output[:, 0]
+        token_cls_output = states_output[:, 0]
         prelogits = self.dense_prelogits(token_cls_output)
         logits = self.dense_logits(prelogits)
         return logits
@@ -339,52 +343,75 @@ class CommonClassifier(nn.Module):
         return logits
 
 
-
 class FastBERTGraph(nn.Module):
     def __init__(self, bert_config, op_config):
         super(FastBERTGraph, self).__init__()
         bert_layer = BERTLayer(bert_config)
-        self.layers = nn.ModuleList([copy.deepcopy(bert_layer) for _ in range(bert_config.num_hidden_layers)])    
+        self.layers = nn.ModuleList([copy.deepcopy(bert_layer) for _ in range(bert_config.num_hidden_layers)])
 
         self.layer_classifier = FastBERTClassifier(bert_config, op_config)
         self.layer_classifiers = nn.ModuleDict()
         for i in range(bert_config.num_hidden_layers - 1):
-            self.layer_classifiers['branch_classifier_'+str(i)] = copy.deepcopy(self.layer_classifier)
+            self.layer_classifiers['branch_classifier_' + str(i)] = copy.deepcopy(self.layer_classifier)
 
-        #Bugfix, Reuse layer_classifier, Train and Distill Tearch Classifer Keep Unique
-        #self.layer_classifiers['final_classifier'] = copy.deepcopy(self.layer_classifier)
+        # Bugfix, Reuse layer_classifier, Train and Distill Tearch Classifer Keep Unique
+        # self.layer_classifiers['final_classifier'] = copy.deepcopy(self.layer_classifier)
         self.layer_classifiers['final_classifier'] = self.layer_classifier
 
         self.ce_loss_fct = nn.CrossEntropyLoss()
         self.num_class = torch.tensor(op_config["num_class"], dtype=torch.float32)
 
-
-    def forward(self, hidden_states, attention_mask, labels=None, inference=False, inference_speed=0.5, training_stage=0):
-        #-----Inference阶段,第i层student不确定性低则动态提前返回----#
+    def forward(self, hidden_states, attention_mask, labels=None, inference=False, inference_speed=0.5,
+                training_stage=0):
+        # In the Inference stage, if the uncertainty of the i-th student is low it will be
+        # returned earlier.
+        # To handle batches we have to compute the uncertainty and regroup the low-confidence
+        # examples into a new batch that is fed to the next layer.
         if inference:
-            uncertain_infos = [] 
-            for i, (layer_module, (k, layer_classifier_module)) in enumerate(zip(self.layers, self.layer_classifiers.items())):
+            batch_size = hidden_states.shape[0]
+            nb_class = int(self.num_class.item())
+            device = hidden_states.device
+
+            # positions will keep track of the original position of each element in the
+            # batch when elements will be removed
+            final_probs = torch.zeros((batch_size, nb_class), device=device)
+            uncertain_infos = torch.zeros((batch_size, nb_class), device=device)
+            positions = torch.arange(start=0, end=batch_size, device=device).long()
+
+            for i, (layer_module, (k, layer_classifier_module)) in \
+                    enumerate(zip(self.layers, self.layer_classifiers.items())):
                 hidden_states = layer_module(hidden_states, attention_mask)
                 logits = layer_classifier_module(hidden_states)
                 prob = F.softmax(logits, dim=-1)
                 log_prob = F.log_softmax(logits, dim=-1)
                 uncertain = torch.sum(prob * log_prob, 1) / (-torch.log(self.num_class))
-                uncertain_infos.append([uncertain, prob])
 
-                #提前返回结果
-                if uncertain < inference_speed:
-                    return prob, i, uncertain_infos
-            return prob, i, uncertain_infos
-        #------训练阶段, 第一阶段初始训练, 第二阶段蒸馏训练--------#
+                enough_info = uncertain < inference_speed
+
+                certain_positions = positions[enough_info]
+                final_probs[certain_positions] = prob[enough_info]
+                uncertain_infos[certain_positions] = uncertain[enough_info]
+
+                hidden_states = hidden_states[~enough_info]
+                attention_mask = attention_mask[~enough_info]
+
+                # if we have processed all the samples
+                if hidden_states.shape[0] == 0:
+                    return final_probs, i, uncertain_infos
+
+                positions = positions[~enough_info]  # updating the positions to fit the new batch
+
+            return final_probs, i, uncertain_infos
+        # ------训练阶段, 第一阶段初始训练, 第二阶段蒸馏训练--------#
         else:
-            #初始训练，和普通训练一致
+            # 初始训练，和普通训练一致
             if training_stage == 0:
                 for layer_module in self.layers:
                     hidden_states = layer_module(hidden_states, attention_mask)
                 logits = self.layer_classifier(hidden_states)
                 loss = self.ce_loss_fct(logits, labels)
                 return loss, logits
-            #蒸馏训练，每层的student和teacher的KL散度作为loss
+            # 蒸馏训练，每层的student和teacher的KL散度作为loss
             else:
                 all_encoder_layers = []
                 for layer_module in self.layers:
@@ -392,12 +419,13 @@ class FastBERTGraph(nn.Module):
                     all_encoder_layers.append(hidden_states)
 
                 all_logits = []
-                for encoder_layer, (k, layer_classifier_module) in zip(all_encoder_layers, self.layer_classifiers.items()):
+                for encoder_layer, (k, layer_classifier_module) in zip(all_encoder_layers,
+                                                                       self.layer_classifiers.items()):
                     layer_logits = layer_classifier_module(encoder_layer)
                     all_logits.append(layer_logits)
-                    
-                #NOTE:debug if freezed
-                #print(self.layer_classifiers['final_classifier'].dense_narrow.weight)
+
+                # NOTE:debug if freezed
+                # print(self.layer_classifiers['final_classifier'].dense_narrow.weight)
 
                 loss = 0.0
                 teacher_log_prob = F.log_softmax(all_logits[-1], dim=-1)
@@ -405,11 +433,11 @@ class FastBERTGraph(nn.Module):
                     student_prob = F.softmax(student_logits, dim=-1)
                     student_log_prob = F.log_softmax(student_logits, dim=-1)
                     uncertain = torch.sum(student_prob * student_log_prob, 1) / (-torch.log(self.num_class))
-                    #print('uncertain:', uncertain[0])
+                    # print('uncertain:', uncertain[0])
 
                     D_kl = torch.sum(student_prob * (student_log_prob - teacher_log_prob), 1)
                     D_kl = torch.mean(D_kl)
-                    loss += D_kl 
+                    loss += D_kl
                 return loss, all_logits
 
 
@@ -442,13 +470,12 @@ class FastBertModel(nn.Module):
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
         embedding_output = self.embeddings(input_ids, token_type_ids)
-        
-        #if Inference=True:res=prob, else: res=loss
-        res = self.graph(embedding_output, extended_attention_mask, 
-                            inference=inference, inference_speed=inference_speed, 
-                            labels=labels, training_stage=training_stage)
-        return res
 
+        # if Inference=True:res=prob, else: res=loss
+        res = self.graph(embedding_output, extended_attention_mask,
+                         inference=inference, inference_speed=inference_speed,
+                         labels=labels, training_stage=training_stage)
+        return res
 
     @classmethod
     def load_pretrained_bert_model(cls, config: BertConfig, op_config, pretrained_model_path,
@@ -464,13 +491,10 @@ class FastBertModel(nn.Module):
             k = re.sub(r'^encoder', 'graph', k)
             k = re.sub(r'^graph\.layer', 'graph.layers', k)
             k = re.sub(r'^pooler\.dense', 'graph.pooler.dense', k)
-            #print(k)
+            # print(k)
             rename_weights[k] = v
 
-        #Strict可以Debug参数
-        #model.load_state_dict(rename_weights)
+        # Strict可以Debug参数
+        # model.load_state_dict(rename_weights)
         model.load_state_dict(rename_weights, strict=False)
         return model
-
-
-
